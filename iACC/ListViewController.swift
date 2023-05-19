@@ -5,7 +5,7 @@
 import UIKit
 
 class ListViewController: UITableViewController {
-	var items = [Any]()
+	var items = [ItemViewModel]()
 	
 	var retryCount = 0
 	var maxRetryCount = 0
@@ -107,7 +107,19 @@ class ListViewController: UITableViewController {
 				}
 			}
 			
-			self.items = filteredItems
+            self.items = filteredItems.map{[weak self] item in
+                ItemViewModel(item, longDateStyle: longDateStyle) {
+                    if let friend = item as? Friend {
+                        self?.select(friend: friend)
+                    } else if let card = item as? Card {
+                        self?.select(card: card)
+                    } else if let transfer = item as? Transfer {
+                        self?.select(transfer: transfer)
+                    } else {
+                        fatalError("unknown item: \(item)")
+                    }
+                }
+            }
 			self.refreshControl?.endRefreshing()
 			self.tableView.reloadData()
 			
@@ -126,7 +138,12 @@ class ListViewController: UITableViewController {
 					DispatchQueue.mainAsyncIfNeeded {
 						switch result {
 						case let .success(items):
-							self?.items = items
+                            self?.items = items.map{ [weak self] item in
+                                ItemViewModel(friend: item) {
+                                        self?.select(friend: item)
+                                    
+                                }
+                            }
 							self?.tableView.reloadData()
 							
 						case let .failure(error):
@@ -159,22 +176,14 @@ class ListViewController: UITableViewController {
 		let item = items[indexPath.row]
 		let cell = tableView.dequeueReusableCell(withIdentifier: "ItemCell") ?? UITableViewCell(style: .subtitle, reuseIdentifier: "ItemCell")
         
-            let vm = ItemViewModel(item, longDateStyle: longDateStyle)
-		cell.configure(vm)
+        
+		cell.configure(item)
 		return cell
 	}
 	
 	override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
 		let item = items[indexPath.row]
-		if let friend = item as? Friend {
-			select(friend: friend)
-		} else if let card = item as? Card {
-			select(card: card)
-		} else if let transfer = item as? Transfer {
-			select(transfer: transfer)
-		} else {
-			fatalError("unknown item: \(item)")
-		}
+        item.select()
 	}
     func select(friend : Friend){
         let vc = FriendDetailsViewController()
@@ -211,29 +220,31 @@ class ListViewController: UITableViewController {
 struct ItemViewModel {
     let title : String
     let subTitle : String
-    
-    init(_ item: Any, longDateStyle: Bool) {
+    let select : () -> Void
+    init(_ item: Any, longDateStyle: Bool , selection : @escaping () ->Void) {
         if let friend = item as? Friend {
-            self.init(friend: friend)
+            self.init(friend: friend , selection : selection)
         } else if let card = item as? Card {
-            self.init(card: card)
+            self.init(card: card , selection : selection)
         } else if let transfer = item as? Transfer {
-            self.init(transfer: transfer, longDateStyle: longDateStyle)
+            self.init(transfer: transfer, longDateStyle: longDateStyle , selection: selection)
         } else {
             fatalError("unknown item: \(item)")
         }
     }
-    init(friend : Friend)
+    init(friend : Friend , selection : @escaping () ->Void )
     {
         title = friend.name
         subTitle = friend.phone
+        select = selection
     }
-    init(card : Card)
+    init(card : Card , selection : @escaping () ->Void)
     {
         title = card.number
         subTitle = card.holder
+        select = selection
     }
-    init(transfer : Transfer , longDateStyle :Bool )
+    init(transfer : Transfer , longDateStyle :Bool , selection : @escaping () ->Void )
     {
         let numberFormatter = Formatters.number
         numberFormatter.numberStyle = .currency
@@ -252,6 +263,7 @@ struct ItemViewModel {
             dateFormatter.timeStyle = .short
             subTitle = "Received from: \(transfer.sender) on \(dateFormatter.string(from: transfer.date))"
         }
+        select = selection
     }
     
 }
