@@ -73,12 +73,31 @@ class MainTabBarController: UITabBarController {
 	private func makeSentTransfersList() -> ListViewController {
 		let vc = ListViewController()
 		vc.fromSentTransfersScreen = true
+        vc.shouldRetry = true
+        vc.maxRetryCount = 1
+        vc.longDateStyle = true
+
+        vc.navigationItem.title = "Sent"
+        vc.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Send", style: .done, target: vc, action: #selector(vc.sendMoney))
+        
+        vc.service = TransfersAPIItemsServiceAdapter(api: TransfersAPI.shared, fromSentTransfersScreen: true, select: { [weak vc] item in
+            vc?.select(transfer: item)
+        })
 		return vc
 	}
 	
 	private func makeReceivedTransfersList() -> ListViewController {
 		let vc = ListViewController()
 		vc.fromReceivedTransfersScreen = true
+        vc.shouldRetry = true
+        vc.maxRetryCount = 1
+        vc.longDateStyle = false
+        
+        vc.navigationItem.title = "Received"
+        vc.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Request", style: .done, target: vc, action: #selector(vc.requestMoney))
+        vc.service = TransfersAPIItemsServiceAdapter(api: TransfersAPI.shared, fromSentTransfersScreen: false, select: { [weak vc] item in
+            vc?.select(transfer: item)
+        })
 		return vc
 	}
 	
@@ -128,6 +147,29 @@ struct CardsAPIItemsServiceAdapter : APIService{
                     items.map{item in
                         ItemViewModel(card: item) {
                             select( item)
+                        }
+                    }
+                })
+            }
+        }
+    }
+}
+struct TransfersAPIItemsServiceAdapter : APIService{
+    let api : TransfersAPI
+    let fromSentTransfersScreen : Bool
+    var select : (Transfer)->Void
+    
+    func loadItems(completion: @escaping (Result<[ItemViewModel], Error>) -> Void) {
+        api.loadTransfers { result in
+            DispatchQueue.mainAsyncIfNeeded {
+                completion(result.map{items in
+                    let filteredItems = fromSentTransfersScreen ? items.filter(\.isSender) : items.filter { !$0.isSender }
+                    //                        var filteredItems = items.filter{
+                    //                            fromSentTransfersScreen ? $0.isSender : !$0.isSender
+                    //                        }
+                    return filteredItems.map{ item in
+                        ItemViewModel(transfer: item, longDateStyle: fromSentTransfersScreen) {
+                            select(item)
                         }
                     }
                 })
