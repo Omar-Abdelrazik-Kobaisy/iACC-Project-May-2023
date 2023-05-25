@@ -6,8 +6,11 @@ import UIKit
 
 class MainTabBarController: UITabBarController {
 	
-	convenience init() {
+    private var friendsCache : FriendsCache!
+    
+    convenience init(friendsCache : FriendsCache) {
 		self.init(nibName: nil, bundle: nil)
+        self.friendsCache = friendsCache
 		self.setupViewController()
 	}
 
@@ -51,11 +54,21 @@ class MainTabBarController: UITabBarController {
 		return vc
 	}
 	
-	private func makeFriendsList() -> ListViewController {
-		let vc = ListViewController()
-		vc.fromFriendsScreen = true
-		return vc
-	}
+    private func makeFriendsList() -> ListViewController {
+        let isPremium = User.shared?.isPremium == true
+        let vc = ListViewController()
+        vc.fromFriendsScreen = true
+        vc.shouldRetry = true
+        vc.maxRetryCount = 2
+        vc.title = "Friends"
+        
+        vc.navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: vc, action: #selector(vc.addFriend))
+        vc.service = FriendsAPIItemsServiceAdapter(api: FriendsAPI.shared
+                                                   , cache: isPremium ? friendsCache : NullFriendCache(), select: { [weak vc] item in
+            vc?.select(friend: item)
+        })
+        return vc
+    }
 	
 	private func makeSentTransfersList() -> ListViewController {
 		let vc = ListViewController()
@@ -75,4 +88,29 @@ class MainTabBarController: UITabBarController {
 		return vc
 	}
 	
+}
+struct FriendsAPIItemsServiceAdapter : APIService{
+    let api : FriendsAPI
+    let cache : FriendsCache
+    var select : (Friend)->Void
+    
+    func loadItems(completion: @escaping (Result<[ItemViewModel], Error>) -> Void) {
+        api.loadFriends {  result in
+            DispatchQueue.mainAsyncIfNeeded {
+                completion(result.map{ items in
+                        cache.save(items )
+                    return items.map{item in
+                         ItemViewModel(friend: item) {
+                            select(item)
+                        }
+                    }
+                })
+            }
+        }
+    }
+}
+
+
+class NullFriendCache : FriendsCache {
+    override func save(_ newFriends: [Friend]) {    }
 }
