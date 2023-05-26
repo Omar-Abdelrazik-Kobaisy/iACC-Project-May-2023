@@ -57,53 +57,52 @@ class MainTabBarController: UITabBarController {
     private func makeFriendsList() -> ListViewController {
         let isPremium = User.shared?.isPremium == true
         let vc = ListViewController()
-        vc.fromFriendsScreen = true
-        vc.shouldRetry = true
-        vc.maxRetryCount = 2
         vc.title = "Friends"
         
         vc.navigationItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .add, target: vc, action: #selector(vc.addFriend))
-        vc.service = FriendsAPIItemsServiceAdapter(api: FriendsAPI.shared
+        let api = FriendsAPIItemsServiceAdapter(api: FriendsAPI.shared
                                                    , cache: isPremium ? friendsCache : NullFriendCache(), select: { [weak vc] item in
             vc?.select(friend: item)
-        })
+        }).retry(2)
+        
+        let cache = FriendsCacheItemsServiceAdapter(cache: friendsCache) { [weak vc] item in
+            vc?.select(friend: item)
+        }
+        
+        vc.service = isPremium ?  api.fallBack(cache) : api
         return vc
     }
 	
 	private func makeSentTransfersList() -> ListViewController {
 		let vc = ListViewController()
-		vc.fromSentTransfersScreen = true
-        vc.shouldRetry = true
-        vc.maxRetryCount = 1
+		
         vc.longDateStyle = true
 
         vc.navigationItem.title = "Sent"
         vc.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Send", style: .done, target: vc, action: #selector(vc.sendMoney))
-        
-        vc.service = TransfersAPIItemsServiceAdapter(api: TransfersAPI.shared, fromSentTransfersScreen: true, select: { [weak vc] item in
+        let api = TransfersAPIItemsServiceAdapter(api: TransfersAPI.shared, fromSentTransfersScreen: true, select: { [weak vc] item in
             vc?.select(transfer: item)
-        })
+        }).retry(1)
+        vc.service = api
 		return vc
 	}
 	
 	private func makeReceivedTransfersList() -> ListViewController {
 		let vc = ListViewController()
-		vc.fromReceivedTransfersScreen = true
-        vc.shouldRetry = true
-        vc.maxRetryCount = 1
+		
         vc.longDateStyle = false
         
         vc.navigationItem.title = "Received"
         vc.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Request", style: .done, target: vc, action: #selector(vc.requestMoney))
         vc.service = TransfersAPIItemsServiceAdapter(api: TransfersAPI.shared, fromSentTransfersScreen: false, select: { [weak vc] item in
             vc?.select(transfer: item)
-        })
+        }).retry(1)
 		return vc
 	}
 	
 	private func makeCardsList() -> ListViewController {
 		let vc = ListViewController()
-        vc.shouldRetry = false
+        
         
         vc.title = "Cards"
         
@@ -177,6 +176,59 @@ struct TransfersAPIItemsServiceAdapter : APIService{
         }
     }
 }
+
+extension APIService {
+    func fallBack(_ fallback : APIService) -> APIService{
+        ItemServiceWithFallBack(primary: self, fallback: fallback)
+    }
+    
+    func retry (_ retryCount : UInt ) -> APIService{
+        var service : APIService = self
+        for _ in 0..<retryCount {
+            service = service.fallBack(self)
+        }
+        return service
+    }
+}
+
+struct ItemServiceWithFallBack : APIService{
+    
+    var primary : APIService
+    var fallback : APIService
+    
+    func loadItems(completion: @escaping (Result<[ItemViewModel], Error>) -> Void) {
+        primary.loadItems { result in
+            switch result {
+            case .success:
+                completion(result)
+            case .failure:
+                fallback.loadItems(completion: completion)
+            }
+        }
+    }
+    
+    
+}
+
+struct FriendsCacheItemsServiceAdapter : APIService{
+    let cache : FriendsCache
+    var select : (Friend)->Void
+    
+    func loadItems(completion: @escaping (Result<[ItemViewModel], Error>) -> Void) {
+        cache.loadFriends { result in
+            DispatchQueue.mainAsyncIfNeeded {
+                completion(result.map{ items in
+                    items.map{ item in
+                        ItemViewModel(friend: item) {
+                            select(item)
+                        }
+                    }
+                }
+                )}
+        }
+    }
+}
+
 
 
 class NullFriendCache : FriendsCache {

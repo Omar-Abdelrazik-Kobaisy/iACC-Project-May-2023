@@ -47,46 +47,17 @@ class ListViewController: UITableViewController {
 	private func handleAPIResult(_ result: Result<[ItemViewModel], Error>) {
 		switch result {
 		case let .success(items):
-			self.retryCount = 0
+//			self.retryCount = 0
             self.items = items
 			self.refreshControl?.endRefreshing()
 			self.tableView.reloadData()
 			
 		case let .failure(error):
-			if shouldRetry && retryCount < maxRetryCount {
-				retryCount += 1
-				
-				refresh()
-				return
-			}
-			
-			retryCount = 0
-			
-			if fromFriendsScreen && User.shared?.isPremium == true {
-				(UIApplication.shared.connectedScenes.first?.delegate as! SceneDelegate).cache.loadFriends { [weak self] result in
-					DispatchQueue.mainAsyncIfNeeded {
-						switch result {
-						case let .success(items):
-                            self?.items = items.map{ [weak self] item in
-                                ItemViewModel(friend: item) {
-                                        self?.select(friend: item)
-                                    
-                                }
-                            }
-							self?.tableView.reloadData()
-							
-						case let .failure(error):
-                            self?.show(error: error)
-						}
-						self?.refreshControl?.endRefreshing()
-					}
-				}
-			} else {
-                self.show(error: error)
+			    self.show(error: error)
 				self.refreshControl?.endRefreshing()
 			}
 		}
-	}
+	
     func show(error : Error){
         let alert = UIAlertController(title: "Error", message: error.localizedDescription, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "Ok", style: .default))
